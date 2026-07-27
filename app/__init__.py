@@ -5,6 +5,7 @@ from flask_cors import CORS
 
 from .db import db, migrate
 from .models import book, progress, reading_list, user # noqa: F401 -- registers models with Base.metadata for migrations
+from .routes.main import main_bp
 
 def create_app(config=None):
     app = Flask(__name__)
@@ -25,19 +26,7 @@ def create_app(config=None):
     migrate.init_app(app, db)
 
     CORS(app)
-    
-    NYT_BOOKS_API_KEY = os.getenv("NYT_BOOKS_API_KEY")
-    
-    @app.route("/")
-    def hello_world():
-        import requests
-        response = requests.get(
-            "https://api.nytimes.com/svc/books/v3/lists/overview.json",
-            params={"api-key": NYT_BOOKS_API_KEY},
-        )
-        return response.json()
 
-    # Register Blueprints here as the app grows
-    # app.register_blueprint(...)
+    app.register_blueprint(main_bp)
 
     return app
