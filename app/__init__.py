@@ -1,17 +1,4 @@
 from flask import Flask
-<<<<<<< HEAD
-from .routes.user_route import user_bp
-
-
-def create_app():
-
-    app = Flask(__name__)
-
-    app.register_blueprint(
-        user_bp,
-        url_prefix="/auth"
-    )
-=======
 from .db import db
 import os
 from flask_cors import CORS
@@ -37,6 +24,5 @@ def create_app():
 
     # Enable CORS
     CORS(app)
->>>>>>> origin/main
 
     return app

@@ -1,13 +1,3 @@
-<<<<<<< HEAD
-class User:
-
-    def __init__(self, username, password):
-        self.username = username
-        self.password = password
-
-
-users = []
-=======
 from sqlalchemy.orm import Mapped, mapped_column
 from ..db import db
 
@@ -22,4 +12,3 @@ class User(db.Model):
     email: Mapped[str] = mapped_column(unique=True, nullable=False)
     username: Mapped[str] = mapped_column(unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(nullable=False)
->>>>>>> origin/main
