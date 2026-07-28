@@ -4,7 +4,7 @@ from ..models.user import User
 from ..db import db
 
 
-user_bp = Blueprint("user", __name__)
+user_bp = Blueprint("user", __name__, url_prefix="/users")
 
 
 @user_bp.route("/register", methods=["POST"])
