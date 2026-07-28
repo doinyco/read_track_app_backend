@@ -2,10 +2,12 @@ import os
 
 from flask import Flask
 from flask_cors import CORS
+from dotenv import load_dotenv
 
 from .db import db, migrate
 from .models import book, progress, reading_list, user # noqa: F401 -- registers models with Base.metadata for migrations
 from .routes.main import main_bp
+from .routes.user_route import user_bp
 
 def create_app(config=None):
     app = Flask(__name__)
@@ -18,6 +20,7 @@ def create_app(config=None):
         "pool_pre_ping": True, # recycles dead connections--this helps handle failover/idle timeout on RDS
         "pool_recycle": 300,
     }
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
     
     if config:
         app.config.update(config)
@@ -26,7 +29,9 @@ def create_app(config=None):
     migrate.init_app(app, db)
 
     CORS(app)
+    load_dotenv()
 
     app.register_blueprint(main_bp)
+    app.register_blueprint(user_bp, url_prefix="/users")
 
     return app
