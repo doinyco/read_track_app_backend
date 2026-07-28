@@ -9,7 +9,7 @@ from app.routes import reading_list_routes
 from .db import db, migrate
 from .models import book, progress, reading_list, user # noqa: F401 -- registers models with Base.metadata for migrations
 from .routes.main import main_bp
-from .routes.user_routes import user_bp
+from .routes.user_route import user_bp
 
 # Load environment variables from a .env file if it exists
 load_dotenv()
