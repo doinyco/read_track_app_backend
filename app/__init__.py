@@ -1,13 +1,18 @@
 import os
 
 from flask import Flask
+from flask.cli import load_dotenv
 from flask_cors import CORS
-from dotenv import load_dotenv
+from .db import migrate
+from app.routes import reading_list_routes
 
 from .db import db, migrate
 from .models import book, progress, reading_list, user # noqa: F401 -- registers models with Base.metadata for migrations
 from .routes.main import main_bp
-from .routes.user_route import user_bp
+from .routes.user_routes import user_bp
+
+# Load environment variables from a .env file if it exists
+load_dotenv()
 
 def create_app(config=None):
     app = Flask(__name__)
@@ -28,10 +33,12 @@ def create_app(config=None):
     db.init_app(app)
     migrate.init_app(app, db)
 
-    CORS(app)
-    load_dotenv()
-
+    # Register Blueprints here
     app.register_blueprint(main_bp)
-    app.register_blueprint(user_bp, url_prefix="/users")
+    app.register_blueprint(user_bp)
+    app.register_blueprint(reading_list_routes.bp)
+
+    # Enable CORS
+    CORS(app)
 
     return app
