@@ -10,6 +10,7 @@ from .db import db, migrate
 from .models import book, progress, reading_list, user # noqa: F401 -- registers models with Base.metadata for migrations
 from .routes.main import main_bp
 from .routes.user_route import user_bp
+from .routes.dashboard_route import dashboard_bp
 
 # Load environment variables from a .env file if it exists
 load_dotenv()
@@ -37,6 +38,7 @@ def create_app(config=None):
     app.register_blueprint(main_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(reading_list_routes.bp)
+    app.register_blueprint(dashboard_bp)
 
     # Enable CORS
     CORS(app)
