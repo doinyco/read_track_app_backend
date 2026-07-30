@@ -4,7 +4,7 @@ from flask import Flask
 from flask.cli import load_dotenv
 from flask_cors import CORS
 from .db import migrate
-from app.routes import reading_list_routes
+from app.routes import reading_list_routes, progress_routes
 
 from .db import db, migrate
 from .models import book, progress, reading_list, user # noqa: F401 -- registers models with Base.metadata for migrations
@@ -40,6 +40,7 @@ def create_app(config=None):
     app.register_blueprint(user_bp)
     app.register_blueprint(reading_list_routes.bp)
     app.register_blueprint(dashboard_bp)
+    app.register_blueprint(progress_routes.bp)
 
     # Enable CORS
     CORS(app,
