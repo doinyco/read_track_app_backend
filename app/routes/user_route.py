@@ -12,10 +12,19 @@ def register():
 
     data = request.json
 
+    username = data.get("username")
+    email = data.get("email")
+    password = data.get("password")
+
+    if not username or not email or not password:
+        return jsonify({
+            "message": "Username, email and password are required"
+        }), 400
+
     new_user = User(
-        email=data["email"],
-        username=data["username"],
-        password_hash=generate_password_hash(data["password"])
+        email=email,
+        username=username,
+        password_hash=generate_password_hash(password)
     )
 
     db.session.add(new_user)
@@ -32,13 +41,21 @@ def login():
 
     data = request.json
 
+    username = data.get("username")
+    password = data.get("password")
+
+    if not username or not password:
+        return jsonify({
+            "message": "Username and password are required"
+        }), 400
+
     user = User.query.filter_by(
-        username=data["username"]
+        username=username
     ).first()
 
     if user and check_password_hash(
         user.password_hash,
-        data["password"]
+        password
     ):
         session["user_id"] = user.id
 

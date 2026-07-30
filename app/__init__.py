@@ -41,6 +41,8 @@ def create_app(config=None):
     app.register_blueprint(dashboard_bp)
 
     # Enable CORS
-    CORS(app)
+    CORS(app,
+         supports_credentials=True,
+        origins=["http://localhost:5173"])
 
     return app
