@@ -27,6 +27,7 @@ def create_app(config=None):
         "pool_recycle": 300,
     }
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
+    app.config["FRONTEND_URL"] = os.getenv("FRONTEND_URL")
     
     if config:
         app.config.update(config)
@@ -42,7 +43,7 @@ def create_app(config=None):
 
     # Enable CORS
     CORS(app,
-         supports_credentials=True,
-        origins=["http://localhost:5173"])
+        origins=[app.config["FRONTEND_URL"]],
+        supports_credentials=True)
 
     return app

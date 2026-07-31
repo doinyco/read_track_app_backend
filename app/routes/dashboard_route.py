@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, session
 from ..models.user import User
+from ..models.book import Book
 from ..models.reading_list import ReadingList, ReadingStatus
 from ..db import db
 
@@ -25,7 +26,7 @@ def get_dashboard():
     want_to_read = []
 
     for entry in reading_list:
-        book = entry.book
+        book = Book.query.get(entry.book_id)
         book_data = {
             "reading_list_id": entry.id,
             "book_id": book.id,
@@ -52,3 +53,5 @@ def get_dashboard():
         "completed_books": completed,
         "wishlist": want_to_read
     }), 200
+
+
