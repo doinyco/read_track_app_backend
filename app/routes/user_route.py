@@ -11,11 +11,19 @@ user_bp = Blueprint("user", __name__, url_prefix="/users")
 def register():
 
     data = request.json
+    username = data.get("username")
+    email = data.get("email")
+    password = data.get("password")
+
+    if not username or not email or not password:
+        return jsonify({
+            "message": "Username, email and password are required"
+        }), 400
 
     new_user = User(
-        email=data["email"],
-        username=data["username"],
-        password_hash=generate_password_hash(data["password"])
+        email=email,
+        username=username,
+        password_hash=generate_password_hash(password)
     )
 
     db.session.add(new_user)
@@ -25,32 +33,43 @@ def register():
         "message": "User registered"
     }), 201
 
-
-
 @user_bp.route("/login", methods=["POST"])
 def login():
 
-    data = request.json
+    data = request.get_json()
 
+    username = data.get("username")
+    password = data.get("password")
+
+
+    # Check if fields are provided
+    if not username or not password:
+        return jsonify({
+            "message": "Username and password are required"
+        }), 400
+
+    # Find user
     user = User.query.filter_by(
-        username=data["username"]
+        username=username
     ).first()
 
+    # Check user and password
     if user and check_password_hash(
         user.password_hash,
-        data["password"]
+        password
     ):
+        # Create session
         session["user_id"] = user.id
 
+        # Debug: check session creation
         return jsonify({
-            "message": "Login successful"
+            "message": "Login successful",
+            "user_id": user.id
         }), 200
 
     return jsonify({
         "message": "Invalid username or password"
     }), 401
-
-
 
 @user_bp.route("/logout", methods=["GET"])
 def logout():
@@ -60,7 +79,6 @@ def logout():
     return jsonify({
         "message": "Logged out"
     }), 200
-
 
 @user_bp.route("/delete", methods=["DELETE"])
 def delete_account():
