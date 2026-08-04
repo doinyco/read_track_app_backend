@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, session
 from ..db import db
 from ..models.book import Book
 from ..models.reading_list import ReadingList, ReadingStatus
@@ -6,19 +6,18 @@ from datetime import datetime, timezone
 
 bp = Blueprint("reading_list", __name__, url_prefix="/reading-list")
 
-
 # route to add a book to the user's library
 @bp.route("/library/books", methods=["POST"])
 def add_book_to_library():
     data = request.get_json()
 
-    user_id = data.get("user_id")
+    user_id = session.get("user_id")
     isbn = data.get("isbn")
     title = data.get("title")
     author = data.get("author")
     total_pages = data.get("total_pages")
 
-    missing = [f for f in ("user_id", "isbn", "title", "author", "total_pages")
+    missing = [f for f in ("isbn", "title", "author")
                if not data.get(f)]
     if missing:
         return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
@@ -37,6 +36,7 @@ def add_book_to_library():
             source=data.get("source", "user_added"),
         )
         db.session.add(book)
+        db.session.flush()
 
     # Check if the book is already in the user's library
     existing_entry = ReadingList.query.filter_by(user_id=user_id, book_id=book.id).first()
@@ -82,11 +82,10 @@ def get_reading_list_entry(reading_list_id):
         "date_completed": entry.date_completed.isoformat() if entry.date_completed else None,
     }), 200
 
-
 # route to get all books in a user's library
 @bp.route("/library/books", methods=["GET"])
 def get_user_library():
-    user_id = request.args.get("user_id")
+    user_id = session.get("user_id")
 
     if not user_id:
         return jsonify({"error": "user_id is required"}), 400
@@ -111,7 +110,6 @@ def get_user_library():
         })
 
     return jsonify(result), 200
-
 
 # route to update the reading status of a book in the user's library
 @bp.route("/books/<int:reading_list_id>", methods=["PATCH"])
