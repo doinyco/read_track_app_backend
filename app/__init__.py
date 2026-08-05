@@ -12,6 +12,8 @@ from .routes.main import main_bp
 from .routes.user_route import user_bp
 from .routes.dashboard_route import dashboard_bp
 from .routes.api_route import book_bp
+from dotenv import load_dotenv
+import os
 
 # Load environment variables from a .env file if it exists
 load_dotenv()

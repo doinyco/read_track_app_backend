@@ -1,8 +1,6 @@
 from flask import Blueprint, jsonify, request
 import requests
 import os
-
-
 from app.services.s3_service import upload_book_cover
 
 book_bp = Blueprint(
@@ -14,10 +12,7 @@ book_bp = Blueprint(
 
 @book_bp.route("/search")
 def search_books():
-
-
    query = request.args.get("q")
-
 
    if not query:
        return jsonify({
@@ -40,84 +35,86 @@ def search_books():
            "error": response.text
        }), response.status_code
 
-
    data = response.json()
-
    books = []
-
 
    search_query  = query.lower().strip()
 
    for item in data.get("items", []):
+    volume = item.get("volumeInfo", {})
+    isbn = None
+
+    for identifier in volume.get("industryIdentifiers", []):
+        if identifier.get("type") == "ISBN_13":
+            isbn = identifier.get("identifier")
+            break
+
+    title = volume.get("title")
+
+    if not title:
+        continue
+
+    title_lower = title.lower()
+
+    score = 0
+
+    if title_lower == search_query:
+        score = 100
+
+    elif title_lower.startswith(search_query):
+        score = 80
+
+    elif search_query in title_lower:
+        score = 60
+
+    else:
+        continue
+
+    image_url = (
+        volume
+        .get("imageLinks", {})
+        .get("thumbnail")
+    )
+
+    if not image_url:
+        continue
+
+    # Google sometimes returns http instead of https
+    image_url = image_url.replace(
+        "http://",
+        "https://"
+    )
+
+    # Download cover image
+    image_response = requests.get(image_url)
+
+    if image_response.status_code != 200:
+        continue
+
+    # Use Google Books ID as filename
+    # Same book = same S3 key
+    google_id = item.get("id")
 
 
-       volume = item.get("volumeInfo", {})
-       isbn = None
+    filename = f"{google_id}.jpg"
 
+    # Upload only if missing
+    #    cover_url = upload_book_cover(
+    #        image_response.content,
+    #        filename
+    #    )
 
-       for identifier in volume.get("industryIdentifiers", []):
-           if identifier.get("type") == "ISBN_13":
-               isbn = identifier.get("identifier")
-               break
+    # Try to upload to S3, but fall back to Google's URL if it fails
+    try:
+        cover_url = upload_book_cover(
+            image_response.content,
+            filename
+        )
+    except Exception as e:
+        print(f"S3 upload failed: {e}, using Google Books URL instead")
+        cover_url = image_url  # Use Google Books thumbnail as fallback
 
-
-       title = volume.get("title")
-
-       if not title:
-           continue
-
-
-       title_lower = title.lower()
-
-       score = 0
-
-       if title_lower == search_query:
-           score = 100
-
-       elif title_lower.startswith(search_query):
-           score = 80
-
-       elif search_query in title_lower:
-           score = 60
-
-       else:
-           continue
-
-       image_url = (
-           volume
-           .get("imageLinks", {})
-           .get("thumbnail")
-       )
-
-       if not image_url:
-           continue
-
-       # Google sometimes returns http instead of https
-       image_url = image_url.replace(
-           "http://",
-           "https://"
-       )
-
-       # Download cover image
-       image_response = requests.get(image_url)
-
-       if image_response.status_code != 200:
-           continue
-
-       # Use Google Books ID as filename
-       # Same book = same S3 key
-       google_id = item.get("id")
-
-
-       filename = f"{google_id}.jpg"
-
-       # Upload only if missing
-       cover_url = upload_book_cover(
-           image_response.content,
-           filename
-       )
-
-       books.append({
+    books.append({
            "score": score,
            "google_id": item.get("id"),
            "title": title,
@@ -127,7 +124,7 @@ def search_books():
            "description": volume.get("description"),
            "cover_image_url": cover_url,
            "source": "google_books"
-       })
+    })
 
    books.sort(
        key=lambda x: x["score"],
@@ -135,5 +132,3 @@ def search_books():
    )
 
    return jsonify(books[:10])
-
-
