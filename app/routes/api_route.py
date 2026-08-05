@@ -5,16 +5,11 @@ import os
 
 from app.services.s3_service import upload_book_cover
 
-
-
-
 book_bp = Blueprint(
    "books",
    __name__,
    url_prefix="/books"
 )
-
-
 
 
 @book_bp.route("/search")
@@ -29,28 +24,16 @@ def search_books():
            "error": "Search query required"
        }), 400
 
-
-
-
    API_KEY = os.getenv("GOOGLE_BOOKS_API_KEY")
 
-
-
-
    url = (
-       "https://www.googleapis.com/books/v1/volumes"
-       f"?q=intitle:{query}"
-       "&maxResults=10"
-       f"&key={API_KEY}"
-   )
-
-
-
+           "https://www.googleapis.com/books/v1/volumes"
+           f"?q=intitle:{query}"
+           "&maxResults=20"
+           f"&key={API_KEY}"
+       )
 
    response = requests.get(url)
-
-
-
 
    if response.status_code != 200:
        return jsonify({
@@ -58,20 +41,12 @@ def search_books():
        }), response.status_code
 
 
-
-
    data = response.json()
-
-
-
 
    books = []
 
 
-   search_title = query.lower().strip()
-
-
-
+   search_query  = query.lower().strip()
 
    for item in data.get("items", []):
 
@@ -88,21 +63,25 @@ def search_books():
 
        title = volume.get("title")
 
-
-
-
        if not title:
            continue
 
 
+       title_lower = title.lower()
 
+       score = 0
 
-       # Match exact title
-       if title.lower().strip() != search_title:
+       if title_lower == search_query:
+           score = 100
+
+       elif title_lower.startswith(search_query):
+           score = 80
+
+       elif search_query in title_lower:
+           score = 60
+
+       else:
            continue
-
-
-
 
        image_url = (
            volume
@@ -110,14 +89,8 @@ def search_books():
            .get("thumbnail")
        )
 
-
-
-
        if not image_url:
            continue
-
-
-
 
        # Google sometimes returns http instead of https
        image_url = image_url.replace(
@@ -125,20 +98,11 @@ def search_books():
            "https://"
        )
 
-
-
-
        # Download cover image
        image_response = requests.get(image_url)
 
-
-
-
        if image_response.status_code != 200:
            continue
-
-
-
 
        # Use Google Books ID as filename
        # Same book = same S3 key
@@ -147,19 +111,14 @@ def search_books():
 
        filename = f"{google_id}.jpg"
 
-
-
-
        # Upload only if missing
        cover_url = upload_book_cover(
            image_response.content,
            filename
        )
 
-
-
-
        books.append({
+           "score": score,
            "google_id": item.get("id"),
            "title": title,
            "author": volume.get("authors", ["Unknown"])[0],
@@ -170,13 +129,11 @@ def search_books():
            "source": "google_books"
        })
 
+   books.sort(
+       key=lambda x: x["score"],
+       reverse=True
+   )
+
+   return jsonify(books[:10])
 
 
-
-       # Only return first exact match
-       break
-
-
-
-
-   return jsonify(books)
