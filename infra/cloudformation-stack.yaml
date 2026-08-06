@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Read Track capstone project AWS infrastructure. Section 1: Networking Includes a dedicated VPC with one public subnet for EC2, and two private subnets for RDS.
+
+Parameters:
+
+  ProjectTag:
+    Type: String
+    Default: read-track-capstone
+    Description: Value for the "Project" tag on every resource, and the tag the budget will filter cost by.
+  
+  EnvironmentTag:
+    Type: String
+    Default: demo
+    Description: Value for the "Environment" tag on every resource.
+  
+  OwnerTag:
+    Type: String
+    Description: Your name (for the "Owner" governance tag). Required.
+    AllowedPattern: '.+'
+    ConstraintDescription: OwnerTag cannot be empty.
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-vpc'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+        - {Key: ManagedBy, Value: CloudFormation}
+  
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-igw'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.20.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-public'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-public-rt'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+  
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+  
+  # --------
+  # Private subnets
+  # --------
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.20.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-private-a'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+  
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.20.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-private-b'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+  
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-private-rt'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+      # Deliberately no AWS::EC2::Route resource here. No
+      # routes beyond the automatic "local" one is what makes
+      # this table private.
+  
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+  
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+# --------
+# OUTPUTS
+# --------
+Outputs:
+  VPCId:
+    Value: !Ref VPC
+  PublicSubnetId:
+    Value: !Ref PublicSubnet
+  PrivateSubnetAId:
+    Value: !Ref PrivateSubnetA
+  PrivateSubnetBId:
+    Value: !Ref PrivateSubnetB
