@@ -19,6 +19,37 @@ Parameters:
     Description: Your name (for the "Owner" governance tag). Required.
     AllowedPattern: '.+'
     ConstraintDescription: OwnerTag cannot be empty.
+  
+  DBInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    AllowedValues:
+      - db.t4g.micro
+      - db.t3.micro
+    Description: Free-tier-eligible instance classes only, by design.
+  
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 30
+    Description: Storage in GB. 20 GB is the free-tier allotment.
+  
+  DBEngineVersion:
+    Type: String
+    Default: '16.14'
+    Description: >
+      RDS PostgreSQL minor versions get deprecated on a rolling basis.
+      Verify what's currently supported before deploying with:
+      aws rds describe-db-engine-versions --engine postgres --query "DBEngineVersions[?starts_with(EngineVersion, '16.')].EngineVersion"
+  
+  DBName:
+    Type: String
+    Default: bookapp
+  
+  MasterUsername:
+    Type: String
+    Default: postgres
 
 Resources:
 
@@ -133,6 +164,66 @@ Resources:
     Properties:
       SubnetId: !Ref PrivateSubnetB
       RouteTableId: !Ref PrivateRouteTable
+  
+# --------
+# RDS
+# --------
+  
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Postgres access to ${ProjectTag} RDS -- ingress added separately once the EC2 security group exists'
+      VpcId: !Ref VPC
+      # No SecurityGroupIngress here on purpose. This will be
+      # handled later through a standalone AWS::EC2::SecurityGroupIngress
+      # resource.
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-rds-sg'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+  
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub 'Subnet group for ${ProjectTag} RDS'
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      Tags:
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+  
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub '${ProjectTag}-db'
+      DBName: !Ref DBName
+      Engine: postgres
+      EngineVersion: !Ref DBEngineVersion
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp3
+      MasterUsername: !Ref MasterUsername
+      ManageMasterUserPassword: true
+      VPCSecurityGroups:
+        - !GetAtt RDSSecurityGroup.GroupId
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+      DeletionProtection: false
+      CopyTagsToSnapshot: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-db'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+        - {Key: ManagedBy, Value: CloudFormation}
+
 
 # --------
 # OUTPUTS
@@ -146,3 +237,15 @@ Outputs:
     Value: !Ref PrivateSubnetA
   PrivateSubnetBId:
     Value: !Ref PrivateSubnetB
+  RDSSecurityGroupId:
+    Value: !GetAtt RDSSecurityGroup.GroupId
+  DBEndpointAddress:
+    Description: RDS endpoint hostname (use in DATABASE_URL)
+    Value: !GetAtt DBInstance.Endpoint.Address
+  DBEndpointPort:
+    Value: !GetAtt DBInstance.Endpoint.Port
+  DBSecretArn:
+    Description: >
+      Secrets Manager ARN holding the auto-generated master password.
+      Retrieve it with: aws secretsmanager get-secret-value --secret-id <this-arn> --query SecretString --output text
+    Value: !GetAtt DBInstance.MasterUserSecret.SecretArn
