@@ -50,6 +50,31 @@ Parameters:
   MasterUsername:
     Type: String
     Default: postgres
+  
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+    Description: >
+      Free-tier eligibility depends on account age and region——t3.micro
+      is the safer default across both the legacy and current free tier
+      programs. Check the "Free tier eligible" label in the console
+      before deploying.
+  
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: >
+      Always resolves to the current Amazon Linux 2023 AMI for this region at
+      deploy time. This avoids hardcoding an AMI ID, which is region-specific
+      and goes stale as AWS publishes new images.
+  
+  AppPort:
+    Type: Number
+    Default: 5000
+    Description: Port the Flask/gunicorn app listens on, opened to the internet.
 
 Resources:
 
@@ -224,6 +249,91 @@ Resources:
         - {Key: Owner, Value: !Ref OwnerTag}
         - {Key: ManagedBy, Value: CloudFormation}
 
+  # -------
+  # EC2
+  # -------
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'App access to ${ProjectTag} EC2 -- app port open to the internet, no SSH port (use SSM Session Manager instead)'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref AppPort
+          ToPort: !Ref AppPort
+          CidrIp: 0.0.0.0/0
+          Description: App traffic from anywhere -- this is a public demo link
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-ec2-sg'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+    
+  RDSIngressFromEC2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt RDSSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !GetAtt EC2SecurityGroup.GroupId
+      Description: Postgres access from the EC2 app
+  
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectTag}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      # Grants SSM Session Manager access——no SSH key pair, no open port 22
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ReadDBSecret
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !GetAtt DBInstance.MasterUserSecret.SecretArn
+      Tags:
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+      
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ProjectTag}-ec2-profile'
+      Roles:
+        - !Ref EC2Role
+  
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !GetAtt EC2SecurityGroup.GroupId
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-app'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+        - {Key: ManagedBy, Value: CloudFormation}
+
 
 # --------
 # OUTPUTS
@@ -249,3 +359,10 @@ Outputs:
       Secrets Manager ARN holding the auto-generated master password.
       Retrieve it with: aws secretsmanager get-secret-value --secret-id <this-arn> --query SecretString --output text
     Value: !GetAtt DBInstance.MasterUserSecret.SecretArn
+  EC2SecurityGroupId:
+    Value: !GetAtt EC2SecurityGroup.GroupId
+  EC2InstanceId:
+    Value: !Ref EC2Instance
+  EC2PublicIp:
+    Description: Public IP of the app instance. Changes if the stack is torn down and recreated
+    Value: !GetAtt EC2Instance.PublicIp
