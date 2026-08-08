@@ -70,3 +70,59 @@ flask run
   flask db upgrade
 ```
 - **Migration errors after pulling new changes** — someone may have added a new migration file. Just re-run `flask db upgrade` to apply anything new.
+
+-----
+
+## AWS CloudFormation stack deployment
+
+### Deploy the stack
+
+Run this command from the project root on your local machine:
+```
+aws cloudformation deploy \
+  --template-file infra/cloudformation-stack.yaml \
+  --stack-name read-track-capstone \
+  --region <REGION_NAME> \
+  --parameter-overrides OwnerTag="<YOUR_NAME>" \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+Please note that `<REGION_NAME>` and `<YOUR_NAME>` need to be replaced with the AWS region you want to deploy to and your own name, respectively.
+
+### Check your stack
+
+To see a collection of useful outputs (DB endpoint, bucket name, EC2 IP, etc.), run the following command on the project root:
+```
+aws cloudformation describe-stacks --stack-name read-track-capstone \
+  --query "Stacks[0].Outputs" --output table
+```
+
+To list every resource on the stack, run the following command:
+```
+aws cloudformation describe-stack-resources --stack-name read-track-capstone
+```
+
+
+### Delete the stack
+
+Run this command from the project root on your local machine:
+```
+aws cloudformation delete-stack --stack-name read-track-capstone --region <REGION_NAME>
+```
+Please note that the policy does not delete the S3 bucket created by the template. This prevents the deletion from failing if the S3 bucket has any files in it. When you're done with the project, you will need to delete it manually.
+
+### Applying migrations to the deployed database
+
+RDS isn't reachable directly. Connect through the EC2 instance instead:
+
+```bash
+aws ssm start-session --target <EC2InstanceId from stack outputs>
+```
+
+From inside that session, fetch the DB password and run migrations:
+```bash
+aws secretsmanager get-secret-value --secret-id <DBSecretArn from stack outputs> \
+  --query SecretString --output text
+# then export DATABASE_URL using that password + the DBEndpointAddress output
+export FLASK_APP=app.app
+flask db upgrade
+```
