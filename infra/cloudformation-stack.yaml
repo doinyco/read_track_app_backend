@@ -1,0 +1,433 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Read Track capstone project AWS infrastructure. Section 1: Networking Includes a dedicated VPC with one public subnet for EC2, and two private subnets for RDS.
+
+Parameters:
+
+  ProjectTag:
+    Type: String
+    Default: read-track-capstone
+    Description: Value for the "Project" tag on every resource, and the tag the budget will filter cost by.
+  
+  EnvironmentTag:
+    Type: String
+    Default: demo
+    Description: Value for the "Environment" tag on every resource.
+  
+  OwnerTag:
+    Type: String
+    Description: Your name (for the "Owner" governance tag). Required.
+    AllowedPattern: '.+'
+    ConstraintDescription: OwnerTag cannot be empty.
+  
+  DBInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    AllowedValues:
+      - db.t4g.micro
+      - db.t3.micro
+    Description: Free-tier-eligible instance classes only, by design.
+  
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 30
+    Description: Storage in GB. 20 GB is the free-tier allotment.
+  
+  DBEngineVersion:
+    Type: String
+    Default: '16.14'
+    Description: >
+      RDS PostgreSQL minor versions get deprecated on a rolling basis.
+      Verify what's currently supported before deploying with:
+      aws rds describe-db-engine-versions --engine postgres --query "DBEngineVersions[?starts_with(EngineVersion, '16.')].EngineVersion"
+  
+  DBName:
+    Type: String
+    Default: bookapp
+  
+  MasterUsername:
+    Type: String
+    Default: postgres
+  
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+    Description: >
+      Free-tier eligibility depends on account age and region——t3.micro
+      is the safer default across both the legacy and current free tier
+      programs. Check the "Free tier eligible" label in the console
+      before deploying.
+  
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: >
+      Always resolves to the current Amazon Linux 2023 AMI for this region at
+      deploy time. This avoids hardcoding an AMI ID, which is region-specific
+      and goes stale as AWS publishes new images.
+  
+  AppPort:
+    Type: Number
+    Default: 5000
+    Description: Port the Flask/gunicorn app listens on, opened to the internet.
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-vpc'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+        - {Key: ManagedBy, Value: CloudFormation}
+  
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-igw'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.20.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-public'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-public-rt'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+  
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+  
+  # --------
+  # Private subnets
+  # --------
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.20.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-private-a'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+  
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.20.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-private-b'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+  
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-private-rt'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+      # Deliberately no AWS::EC2::Route resource here. No
+      # routes beyond the automatic "local" one is what makes
+      # this table private.
+  
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+  
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+  
+# --------
+# RDS
+# --------
+  
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Postgres access to ${ProjectTag} RDS -- ingress added separately once the EC2 security group exists'
+      VpcId: !Ref VPC
+      # No SecurityGroupIngress here on purpose. This will be
+      # handled later through a standalone AWS::EC2::SecurityGroupIngress
+      # resource.
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-rds-sg'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+  
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub 'Subnet group for ${ProjectTag} RDS'
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      Tags:
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+  
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub '${ProjectTag}-db'
+      DBName: !Ref DBName
+      Engine: postgres
+      EngineVersion: !Ref DBEngineVersion
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp3
+      MasterUsername: !Ref MasterUsername
+      ManageMasterUserPassword: true
+      VPCSecurityGroups:
+        - !GetAtt RDSSecurityGroup.GroupId
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 0
+      DeletionProtection: false
+      CopyTagsToSnapshot: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-db'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  # -------
+  # EC2
+  # -------
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'App access to ${ProjectTag} EC2 -- app port open to the internet, no SSH port (use SSM Session Manager instead)'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref AppPort
+          ToPort: !Ref AppPort
+          CidrIp: 0.0.0.0/0
+          Description: App traffic from anywhere -- this is a public demo link
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-ec2-sg'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+    
+  RDSIngressFromEC2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt RDSSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !GetAtt EC2SecurityGroup.GroupId
+      Description: Postgres access from the EC2 app
+  
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectTag}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      # Grants SSM Session Manager access——no SSH key pair, no open port 22
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ReadDBSecret
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !GetAtt DBInstance.MasterUserSecret.SecretArn
+      Tags:
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+      
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ProjectTag}-ec2-profile'
+      Roles:
+        - !Ref EC2Role
+  
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !GetAtt EC2SecurityGroup.GroupId
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-app'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+        - {Key: ManagedBy, Value: CloudFormation}
+  
+  # -------
+  # S3
+  # -------
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectTag}-covers-${AWS::AccountId}'
+      # Storage is cheap, so unlike EC2/RDS, this bucket isn't
+      # part of the spin-up/spin-down cycle
+      # -- DeletionPolicy: Retain on purpose. This also sidesteps
+      # the problem of CloudFormation refusing to delete a non-empty
+      # bucket, which would cause a failure on this resource when
+      # running a `delete-stack` command
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+        # Policy and bucket-level public access are allowed, since
+        # we are giving book covers public read in the EC2S3Access policy
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-covers'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+        - {Key: ManagedBy, Value: CloudFormation}
+  
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadCovers
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            # Scoped to the images/ prefix only.
+            Resource: !Sub '${S3Bucket.Arn}/images/*'
+
+  EC2S3Access:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectTag}-ec2-s3-access'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+            Resource: !Sub '${S3Bucket.Arn}/images/*'
+      Roles:
+        - !Ref EC2Role
+
+
+# --------
+# OUTPUTS
+# --------
+Outputs:
+  VPCId:
+    Value: !Ref VPC
+  PublicSubnetId:
+    Value: !Ref PublicSubnet
+  PrivateSubnetAId:
+    Value: !Ref PrivateSubnetA
+  PrivateSubnetBId:
+    Value: !Ref PrivateSubnetB
+  RDSSecurityGroupId:
+    Value: !GetAtt RDSSecurityGroup.GroupId
+  DBEndpointAddress:
+    Description: RDS endpoint hostname (use in DATABASE_URL)
+    Value: !GetAtt DBInstance.Endpoint.Address
+  DBEndpointPort:
+    Value: !GetAtt DBInstance.Endpoint.Port
+  DBSecretArn:
+    Description: >
+      Secrets Manager ARN holding the auto-generated master password.
+      Retrieve it with: aws secretsmanager get-secret-value --secret-id <this-arn> --query SecretString --output text
+    Value: !GetAtt DBInstance.MasterUserSecret.SecretArn
+  EC2SecurityGroupId:
+    Value: !GetAtt EC2SecurityGroup.GroupId
+  EC2InstanceId:
+    Value: !Ref EC2Instance
+  EC2PublicIp:
+    Description: Public IP of the app instance. Changes if the stack is torn down and recreated
+    Value: !GetAtt EC2Instance.PublicIp
+  S3BucketName:
+    Description : >
+      Set this as S3_BUCKET_NAME in the app's environment
+    Value: !Ref S3Bucket
+  S3BucketArn:
+    Value: !GetAtt S3Bucket.Arn
