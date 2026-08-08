@@ -333,6 +333,65 @@ Resources:
         - {Key: Environment, Value: !Ref EnvironmentTag}
         - {Key: Owner, Value: !Ref OwnerTag}
         - {Key: ManagedBy, Value: CloudFormation}
+  
+  # -------
+  # S3
+  # -------
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectTag}-covers-${AWS::AccountId}'
+      # Storage is cheap, so unlike EC2/RDS, this bucket isn't
+      # part of the spin-up/spin-down cycle
+      # -- DeletionPolicy: Retain on purpose. This also sidesteps
+      # the problem of CloudFormation refusing to delete a non-empty
+      # bucket, which would cause a failure on this resource when
+      # running a `delete-stack` command
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+        # Policy and bucket-level public access are allowed, since
+        # we are giving book covers public read in the EC2S3Access policy
+      Tags:
+        - {Key: Name, Value: !Sub '${ProjectTag}-covers'}
+        - {Key: Project, Value: !Ref ProjectTag}
+        - {Key: Environment, Value: !Ref EnvironmentTag}
+        - {Key: Owner, Value: !Ref OwnerTag}
+        - {Key: ManagedBy, Value: CloudFormation}
+  
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadCovers
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            # Scoped to the images/ prefix only.
+            Resource: !Sub '${S3Bucket.Arn}/images/*'
+
+  EC2S3Access:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ProjectTag}-ec2-s3-access'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+            Resource: !Sub '${S3Bucket.Arn}/images/*'
+      Roles:
+        - !Ref EC2Role
 
 
 # --------
@@ -366,3 +425,9 @@ Outputs:
   EC2PublicIp:
     Description: Public IP of the app instance. Changes if the stack is torn down and recreated
     Value: !GetAtt EC2Instance.PublicIp
+  S3BucketName:
+    Description : >
+      Set this as S3_BUCKET_NAME in the app's environment
+    Value: !Ref S3Bucket
+  S3BucketArn:
+    Value: !GetAtt S3Bucket.Arn
