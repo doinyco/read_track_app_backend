@@ -96,6 +96,8 @@ aws cloudformation describe-stacks --stack-name read-track-capstone \
   --query "Stacks[0].Outputs" --output table
 ```
 
+(Omit `--output table` if you want to return the output as an array of dictionaries instead.)
+
 To list every resource on the stack, run the following command:
 ```
 aws cloudformation describe-stack-resources --stack-name read-track-capstone
