@@ -198,8 +198,10 @@ Look for `active (running)`. If `failed`, check `sudo journalctl -u readtrack -n
 #### 6. Point the local frontend at it
 In the **frontend** repo, create `.env.local` (gitignored — every teammate sets their own):
 
+```
 VITE_API_URL=/api
 VITE_EC2_URL=http://<EC2PublicIp>:5000/
+```
 
 Then:
 ```bash
