@@ -390,6 +390,12 @@ Resources:
               - s3:PutObject
               - s3:GetObject
             Resource: !Sub '${S3Bucket.Arn}/images/*'
+          - Effect: Allow
+            Action: s3:ListBucket
+            Resource: !GetAtt S3Bucket.Arn
+            Condition:
+              StringLike:
+                s3:prefix: 'images/*'
       Roles:
         - !Ref EC2Role
 
