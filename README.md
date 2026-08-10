@@ -213,3 +213,28 @@ Open `http://localhost:5173` and confirm end-to-end — register a user, search 
 - **Not reachable at all** — confirm `systemctl status readtrack` shows `active (running)`, and that you're using the *current* `EC2PublicIp` (it changes if the stack is ever torn down and recreated).
 - **401 on every request despite a successful login** — usually means the frontend is bypassing the proxy. Check `VITE_API_URL=/api`, not the full EC2 URL.
 - **Book covers not showing up in S3** — check `sudo journalctl -u readtrack -n 50 --no-pager | grep "S3 upload failed"` on EC2.
+
+#### Verify the deployment
+
+Once you've launched your frontend and tested all your routes (`/register`, `/login`, `/dashboard`, `/library`) as well as their features, you can run some commands to make sure your locally-deployed frontend is properly interacting with your AWS services.
+
+**RDS** — on EC2, in the same session as your other setup commands:
+```bash
+export FLASK_APP=app.app
+flask shell
+```
+```python
+from app.db import db
+from app.models.user import User
+
+User.query.count()                        # should match how many times you registered
+[u.username for u in User.query.all()]     # confirms real data, not just a count
+```
+
+**S3** — from your own machine, not EC2:
+```bash
+aws s3 ls s3://<S3BucketName>/images/
+```
+Real object keys listed here means covers are actually landing in the bucket, not silently falling back to Google's URLs.
+
+**EC2** — there's no separate check for this one: successfully running `flask shell` in an SSM session connected to the instance *is* the confirmation. If you want to verify the frontend's requests are specifically reaching EC2 (not a cached or stale response), check the browser's Network tab
